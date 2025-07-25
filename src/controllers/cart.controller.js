@@ -1,11 +1,12 @@
 import { CartRepository } from '../repositories/cart.repository.js';
 import { ProductRepository } from '../repositories/product.repository.js';
 import { Ticket } from '../models/ticket.model.js';
-
+import { Cart } from '../models/cart.model.js'; // ✅ asegúrate de importar el modelo para populate directo
 
 const cartRepo = new CartRepository();
 const productRepo = new ProductRepository();
 
+// ✅ Agregar producto al carrito con populate
 export const addToCart = async (req, res) => {
   const userId = req.user._id;
   const { codigo } = req.params;
@@ -13,10 +14,14 @@ export const addToCart = async (req, res) => {
   try {
     console.log("Código recibido:", codigo);
     const product = await productRepo.getProductByCodigo(codigo);
-    console.log("Producto encontrado:", product);    if (!product) return res.status(404).json({ message: 'Producto no encontrado' });
+    if (!product) return res.status(404).json({ message: 'Producto no encontrado' });
 
     const cart = await cartRepo.getUserCart(userId);
-    const updatedCart = await cartRepo.addProductToCart(cart, product._id);
+    await cartRepo.addProductToCart(cart, product._id);
+
+    // ✅ recargar carrito populado
+    const updatedCart = await Cart.findOne({ usuarioId: userId })
+      .populate('productos.productoId', 'nombreComercial codigo precio');
 
     res.status(200).json({ message: 'Producto agregado al carrito', cart: updatedCart });
   } catch (error) {
@@ -25,6 +30,7 @@ export const addToCart = async (req, res) => {
   }
 };
 
+// ✅ Eliminar producto del carrito con populate
 export const removeFromCart = async (req, res) => {
   const userId = req.user._id;
   const { codigo } = req.params;
@@ -34,35 +40,45 @@ export const removeFromCart = async (req, res) => {
     if (!product) return res.status(404).json({ message: 'Producto no encontrado' });
 
     const cart = await cartRepo.getUserCart(userId);
-    const updatedCart = await cartRepo.removeProductFromCart(cart, product._id);
+    await cartRepo.removeProductFromCart(cart, product._id);
+
+    // ✅ recargar carrito populado
+    const updatedCart = await Cart.findOne({ usuarioId: userId })
+      .populate('productos.productoId', 'nombreComercial codigo precio');
 
     res.status(200).json({ message: 'Producto eliminado del carrito', cart: updatedCart });
   } catch (error) {
+    console.error("Error al eliminar producto:", error);
     res.status(500).json({ message: 'Error al eliminar producto', error: error.message });
   }
 };
 
+// ✅ Ver carrito con populate
 export const viewCart = async (req, res) => {
   const userId = req.user._id;
 
   try {
-    const cart = await cartRepo.getUserCart(userId);
+    const cart = await Cart.findOne({ usuarioId: userId })
+      .populate('productos.productoId', 'nombreComercial codigo precio');
     res.status(200).json({ message: 'Carrito del usuario', cart });
   } catch (error) {
     res.status(500).json({ message: 'Error al obtener el carrito', error: error.message });
   }
 };
 
-
+// ✅ Generar código de ticket
 function generarCodigoTicket() {
   return 'TCK-' + Date.now();
 }
 
+// ✅ Finalizar compra con verificación de stock
 export const purchaseCart = async (req, res) => {
   const userId = req.user._id;
 
   try {
-    const cart = await cartRepo.getUserCart(userId);
+    const cart = await Cart.findOne({ usuarioId: userId })
+      .populate('productos.productoId'); // ✅ populate para acceder a nombreComercial, precio y stock
+
     if (!cart || cart.productos.length === 0) {
       return res.status(400).json({ message: 'El carrito está vacío' });
     }
@@ -70,9 +86,9 @@ export const purchaseCart = async (req, res) => {
     let total = 0;
     const productosFinal = [];
 
-    // Verificar stock
+    // 🔹 Verificar stock y calcular total
     for (const item of cart.productos) {
-      const product = await productRepo.getProductByCodigo(item.productoId.codigo);
+      const product = item.productoId;
       if (!product) continue;
 
       if (product.stock >= item.cantidad) {
@@ -92,7 +108,7 @@ export const purchaseCart = async (req, res) => {
       }
     }
 
-    // Generar ticket
+    // ✅ Generar ticket
     const newTicket = await Ticket.create({
       codigo: generarCodigoTicket(),
       comprador: userId,
@@ -100,16 +116,15 @@ export const purchaseCart = async (req, res) => {
       total
     });
 
-    // Cambiar estado del carrito
-    // Eliminar el carrito completamente
-     await cart.deleteOne({ _id: cart._id });
-
+    // ✅ Vaciar carrito eliminándolo
+    await cart.deleteOne({ _id: cart._id });
 
     res.status(200).json({
       message: 'Compra realizada con éxito',
       ticket: newTicket
     });
   } catch (error) {
+    console.error("Error en la compra:", error);
     res.status(500).json({ message: 'Error en la compra', error: error.message });
   }
 };

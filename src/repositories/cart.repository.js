@@ -3,9 +3,11 @@ const cartDAO = new CartDAO();
 
 export class CartRepository {
   async getUserCart(userId) {
-    let cart = await cartDAO.findByUserId(userId); // Aquí ya esperamos que venga con productos populados
+    let cart = await cartDAO.findByUserId(userId);
     if (!cart) {
       cart = await cartDAO.createCart(userId);
+    } else {
+      await cart.populate('productos.productoId'); // 🔥 asegura que siempre viene el producto
     }
     return cart;
   }
