@@ -2,7 +2,7 @@ import { Cart } from '../models/cart.model.js';
 
 export class CartDAO {
   async findByUserId(userId) {
-    return await Cart.findOne({ usuario: userId }).populate('productos.productoId');
+    return await Cart.findOne({ usuarioId: userId }).populate('productos.productoId');
   }
 
   async createCart(userId) {

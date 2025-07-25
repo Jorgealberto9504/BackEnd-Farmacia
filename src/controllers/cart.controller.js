@@ -11,14 +11,16 @@ export const addToCart = async (req, res) => {
   const { codigo } = req.params;
 
   try {
+    console.log("Código recibido:", codigo);
     const product = await productRepo.getProductByCodigo(codigo);
-    if (!product) return res.status(404).json({ message: 'Producto no encontrado' });
+    console.log("Producto encontrado:", product);    if (!product) return res.status(404).json({ message: 'Producto no encontrado' });
 
     const cart = await cartRepo.getUserCart(userId);
     const updatedCart = await cartRepo.addProductToCart(cart, product._id);
 
     res.status(200).json({ message: 'Producto agregado al carrito', cart: updatedCart });
   } catch (error) {
+    console.error("Error al agregar producto:", error);
     res.status(500).json({ message: 'Error al agregar producto', error: error.message });
   }
 };
