@@ -2,6 +2,8 @@ import { CartRepository } from '../repositories/cart.repository.js';
 import { ProductRepository } from '../repositories/product.repository.js';
 import { Ticket } from '../models/ticket.model.js';
 import { Cart } from '../models/cart.model.js'; // ✅ asegúrate de importar el modelo para populate directo
+import { sendRecoveryEmail } from '../services/mailer.service.js';
+import { User } from '../models/user.model.js';
 
 const cartRepo = new CartRepository();
 const productRepo = new ProductRepository();
@@ -76,17 +78,17 @@ export const purchaseCart = async (req, res) => {
   const userId = req.user._id;
 
   try {
-    const cart = await Cart.findOne({ usuarioId: userId })
-      .populate('productos.productoId'); // ✅ populate para acceder a nombreComercial, precio y stock
-
+    const cart = await Cart.findOne({ usuarioId: userId }).populate('productos.productoId');
     if (!cart || cart.productos.length === 0) {
       return res.status(400).json({ message: 'El carrito está vacío' });
     }
 
+    // ✅ obtener datos del usuario
+    const userData = await User.findById(userId).lean();
+
     let total = 0;
     const productosFinal = [];
 
-    // 🔹 Verificar stock y calcular total
     for (const item of cart.productos) {
       const product = item.productoId;
       if (!product) continue;
@@ -99,6 +101,7 @@ export const purchaseCart = async (req, res) => {
 
         productosFinal.push({
           productoId: product._id,
+          nombre: product.nombreComercial,
           cantidad: item.cantidad
         });
       } else {
@@ -108,21 +111,49 @@ export const purchaseCart = async (req, res) => {
       }
     }
 
-    // ✅ Generar ticket
+    // ✅ generar ticket
     const newTicket = await Ticket.create({
-      codigo: generarCodigoTicket(),
+      codigo: 'TCK-' + Date.now(),
       comprador: userId,
       productos: productosFinal,
       total
     });
 
-    // ✅ Vaciar carrito eliminándolo
+    // ✅ vaciar carrito
     await cart.deleteOne({ _id: cart._id });
 
-    res.status(200).json({
-      message: 'Compra realizada con éxito',
-      ticket: newTicket
-    });
+    // ✅ construir correos
+    const htmlUser = `
+      <h2>✅ Gracias por su compra, ${userData.name}</h2>
+      <p>Su pedido ha sido recibido y está en preparación.</p>
+      <p><b>Total:</b> $${total.toFixed(2)}</p>
+      <p><b>Código de ticket:</b> ${newTicket.codigo}</p>
+      <h3>🛒 Productos:</h3>
+      <ul>
+        ${productosFinal.map(p => `<li>${p.nombre} - Cantidad: ${p.cantidad}</li>`).join('')}
+      </ul>
+      <p>Gracias por su preferencia.</p>
+    `;
+
+    const htmlAdmin = `
+      <h2>📦 Nuevo pedido recibido</h2>
+      <p><b>Cliente:</b> ${userData.name}</p>
+      <p><b>Email:</b> ${userData.email}</p>
+      <p><b>Teléfono:</b> ${userData.phone}</p>
+      <p><b>Dirección:</b> ${userData.address}</p>
+      <p><b>Total:</b> $${total.toFixed(2)}</p>
+      <p><b>Código de ticket:</b> ${newTicket.codigo}</p>
+      <h3>🛒 Productos:</h3>
+      <ul>
+        ${productosFinal.map(p => `<li>${p.nombre} - Cantidad: ${p.cantidad}</li>`).join('')}
+      </ul>
+    `;
+
+    // ✅ enviar correos
+    await sendRecoveryEmail(userData.email, `Gracias por su compra - ${newTicket.codigo}`, htmlUser);
+    await sendRecoveryEmail(process.env.ADMIN_EMAIL, `Nuevo pedido de ${userData.name} - ${newTicket.codigo}`, htmlAdmin);
+
+    res.status(200).json({ message: 'Compra realizada con éxito', ticket: newTicket });
   } catch (error) {
     console.error("Error en la compra:", error);
     res.status(500).json({ message: 'Error en la compra', error: error.message });
