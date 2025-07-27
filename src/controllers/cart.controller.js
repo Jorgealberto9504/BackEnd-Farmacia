@@ -111,13 +111,14 @@ export const purchaseCart = async (req, res) => {
       }
     }
 
-    // ✅ generar ticket
-    const newTicket = await Ticket.create({
-      codigo: 'TCK-' + Date.now(),
-      comprador: userId,
-      productos: productosFinal,
-      total
-    });
+      // ✅ generar ticket con estado pendiente
+      const newTicket = await Ticket.create({
+        codigo: 'TCK-' + Date.now(),
+        comprador: userId,
+        productos: productosFinal,
+        total,
+        estado: 'pendiente'   // ✅ ahora se guarda correctamente
+      });
 
     // ✅ vaciar carrito
     await cart.deleteOne({ _id: cart._id });
