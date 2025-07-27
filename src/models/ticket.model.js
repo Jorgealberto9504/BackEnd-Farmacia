@@ -1,3 +1,4 @@
+// models/ticket.model.js
 import mongoose from 'mongoose';
 
 const ticketSchema = new mongoose.Schema({
@@ -27,6 +28,11 @@ const ticketSchema = new mongoose.Schema({
   total: {
     type: Number,
     required: true
+  },
+  estado: { 
+    type: String, 
+    enum: ['pendiente', 'surtido'], 
+    default: 'pendiente'   // ✅ nuevo campo
   },
   fecha: {
     type: Date,

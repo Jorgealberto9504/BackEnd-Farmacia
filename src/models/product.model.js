@@ -9,8 +9,13 @@ const productSchema = new mongoose.Schema({
   codigo: { type: String, required: true, unique: true },
   stock: { type: Number, required: true },
   categoria: { type: String, required: true }, // Ej. "Antibiótico"
-  tipoVenta: { type: String, enum: ['Libre', 'Con receta'], required: true },
-  laboratorio: { type: String, required: true },
+// En product.model.js
+tipoVenta: {
+  type: String,
+  enum: ["Libre", "Receta"],
+  required: true,
+  set: (v) => v.charAt(0).toUpperCase() + v.slice(1).toLowerCase() // 🔥 normaliza
+},  laboratorio: { type: String, required: true },
   imagen: { type: String, default: '' },
   estado: { type: String, enum: ['activo', 'inactivo'], default: 'activo' }
 }, { timestamps: true });
