@@ -1,4 +1,4 @@
-// src/models/product.model.js
+// ✅ src/models/product.model.js
 import mongoose from 'mongoose';
 
 const productSchema = new mongoose.Schema({
@@ -9,14 +9,10 @@ const productSchema = new mongoose.Schema({
   codigo: { type: String, required: true, unique: true },
   stock: { type: Number, required: true },
   categoria: { type: String, required: true },
-  tipoVenta: {
-    type: String,
-    enum: ["Libre", "Con receta"], // ✅ ahora coincide con tu frontend
-    required: true
-  },
+  tipoVenta: { type: String, enum: ["Libre", "Con receta"], required: true },
   laboratorio: { type: String, required: true },
-  imagen: { type: String, default: '' },
-  estado: { type: String, enum: ['activo', 'inactivo'], default: 'activo' }
+  imagen: { type: String, default: "" }, // ✅ Guarda solo la ruta del archivo
+  estado: { type: String, enum: ["activo", "inactivo"], default: "activo" }
 }, { timestamps: true });
 
-export const Product = mongoose.model('Product', productSchema);
+export const Product = mongoose.model("Product", productSchema);

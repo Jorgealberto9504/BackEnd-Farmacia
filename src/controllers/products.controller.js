@@ -4,10 +4,43 @@ import { productDTO } from '../dtos/product.dto.js';
 
 const productRepo = new ProductRepository();
 
-// ✅ Crear producto
+// ✅ Crear producto con soporte para imagen subida
 export const createProduct = async (req, res) => {
   try {
+    // ✅ Si multer bloqueó el archivo (extensión no permitida)
+    if (req.fileValidationError) {
+      return res.status(400).json({ message: req.fileValidationError });
+    }
+
     const {
+      nombreComercial,
+      sustanciaActiva,
+      descripcion,
+      precio,
+      codigo,
+      stock,
+      categoria,
+      tipoVenta,
+      laboratorio
+    } = req.body;
+
+    // ✅ Validación de campos obligatorios
+    if (!nombreComercial || !sustanciaActiva || !descripcion ||
+        !precio || !codigo || !stock || !categoria || !tipoVenta || !laboratorio) {
+      return res.status(400).json({ message: 'Todos los campos obligatorios deben estar completos.' });
+    }
+
+    // ✅ Verificar si ya existe el producto
+    const existing = await productRepo.getProductByCodigo(codigo);
+    if (existing) {
+      return res.status(409).json({ message: 'Ya existe un producto con este código.' });
+    }
+
+    // ✅ Si hay imagen subida, usa la ruta, si no, asigna vacío
+    const imagen = req.file ? `/uploads/products/${req.file.filename}` : "";
+
+    // ✅ Crear producto en BD
+    const product = await productRepo.createProduct({
       nombreComercial,
       sustanciaActiva,
       descripcion,
@@ -18,82 +51,78 @@ export const createProduct = async (req, res) => {
       tipoVenta,
       laboratorio,
       imagen
-    } = req.body;
-
-    if (
-      !nombreComercial || !sustanciaActiva || !descripcion ||
-      !precio || !codigo || !stock || !categoria || !tipoVenta || !laboratorio
-    ) {
-      return res.status(400).json({ message: 'Todos los campos obligatorios deben estar completos.' });
-    }
-
-    const existing = await productRepo.getProductByCodigo(codigo);
-    if (existing) {
-      return res.status(409).json({ message: 'Ya existe un producto con este código.' });
-    }
-
-    const product = await productRepo.createProduct({
-      nombreComercial, sustanciaActiva, descripcion, precio,
-      codigo, stock, categoria, tipoVenta, laboratorio, imagen
     });
 
-    res.status(201).json({ message: 'Producto creado exitosamente', product });
+    return res.status(201).json({
+      message: '✅ Producto creado exitosamente',
+      product
+    });
   } catch (error) {
     console.error("❌ Error en createProduct:", error);
-    res.status(500).json({ message: 'Error al crear el producto', error: error.message });
+    return res.status(500).json({
+      message: 'Error al crear producto',
+      error: error.message
+    });
   }
 };
 
-// ✅ Obtener productos (con DTO para usuarios)
+// ✅ Obtener productos (usuarios)
 export const getProducts = async (req, res) => {
   try {
     const products = await productRepo.getAllProducts();
-    const safeProducts = products.map(product => productDTO(product));
-
-    res.status(200).json({ message: 'Lista de productos', products: safeProducts });
+    res.status(200).json({ message: "Lista de productos", products: products.map(productDTO) });
   } catch (error) {
-    console.error("❌ Error en getProducts:", error);
-    res.status(500).json({ message: 'Error al obtener productos', error: error.message });
+    res.status(500).json({ message: "Error al obtener productos", error: error.message });
   }
 };
 
-// ✅ Obtener productos completos para Admin
+// ✅ Obtener productos (admin)
 export const getAllProductsAdmin = async (req, res) => {
   try {
     const products = await productRepo.getAllProducts();
-    res.status(200).json({ message: 'Lista completa de productos (admin)', products });
+    res.status(200).json({ message: "Lista completa de productos", products });
   } catch (error) {
-    console.error("❌ Error en getAllProductsAdmin:", error);
-    res.status(500).json({ message: 'Error al obtener productos', error: error.message });
+    res.status(500).json({ message: "Error al obtener productos", error: error.message });
   }
 };
 
-// ✅ Actualizar producto por código
+// ✅ Editar producto y actualizar imagen si se envía nueva
 export const updateProductByCodigo = async (req, res) => {
   const { codigo } = req.params;
   try {
-    const updatedProduct = await productRepo.updateProduct(codigo, req.body);
-    if (!updatedProduct) {
-      return res.status(404).json({ message: `No se encontró ningún producto con código ${codigo}` });
+    const updateData = { ...req.body };
+    if (req.file) {
+      updateData.imagen = `/uploads/products/${req.file.filename}`;
     }
-    res.status(200).json({ message: 'Producto actualizado exitosamente', product: updatedProduct });
+
+    const updatedProduct = await productRepo.updateProduct(codigo, updateData);
+    if (!updatedProduct) {
+      return res.status(404).json({ message: `No se encontró producto con código ${codigo}` });
+    }
+    res.status(200).json({ message: 'Producto actualizado', product: updatedProduct });
   } catch (error) {
-    console.error("❌ Error en updateProductByCodigo:", error);
-    res.status(500).json({ message: 'Error al actualizar el producto', error: error.message });
+    res.status(500).json({ message: 'Error al actualizar producto', error: error.message });
   }
 };
 
-// ✅ Eliminar producto por código
+// ✅ Eliminar producto
 export const deleteProductByCodigo = async (req, res) => {
   const { codigo } = req.params;
   try {
-    const deletedProduct = await productRepo.deleteProduct(codigo);
-    if (!deletedProduct) {
-      return res.status(404).json({ message: `No se encontró ningún producto con código ${codigo}` });
-    }
-    res.status(200).json({ message: 'Producto eliminado exitosamente', product: deletedProduct });
+    const deleted = await productRepo.deleteProduct(codigo);
+    if (!deleted) return res.status(404).json({ message: `No se encontró producto con código ${codigo}` });
+    res.status(200).json({ message: "Producto eliminado", product: deleted });
   } catch (error) {
-    console.error("❌ Error en deleteProductByCodigo:", error);
-    res.status(500).json({ message: 'Error al eliminar el producto', error: error.message });
+    res.status(500).json({ message: "Error al eliminar producto", error: error.message });
+  }
+};
+
+// ✅ Endpoint para subir imagen sola
+export const subirImagenProducto = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: "No se envió ninguna imagen" });
+    res.status(200).json({ imageUrl: `/uploads/${req.file.filename}` });
+  } catch (error) {
+    res.status(500).json({ message: "Error al subir imagen", error: error.message });
   }
 };
