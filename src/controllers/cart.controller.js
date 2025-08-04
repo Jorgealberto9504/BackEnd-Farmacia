@@ -1,14 +1,19 @@
 import { CartRepository } from '../repositories/cart.repository.js';
 import { ProductRepository } from '../repositories/product.repository.js';
 import { Ticket } from '../models/ticket.model.js';
-import { Cart } from '../models/cart.model.js'; // ✅ asegúrate de importar el modelo para populate directo
+import { Cart } from '../models/cart.model.js';
 import { sendRecoveryEmail } from '../services/mailer.service.js';
 import { User } from '../models/user.model.js';
 
 const cartRepo = new CartRepository();
 const productRepo = new ProductRepository();
 
-// ✅ Agregar producto al carrito con populate
+// ✅ Generar código de ticket
+function generarCodigoTicket() {
+  return 'TCK-' + Date.now();
+}
+
+// ✅ Agregar producto al carrito
 export const addToCart = async (req, res) => {
   const userId = req.user._id;
   const { codigo } = req.params;
@@ -21,7 +26,6 @@ export const addToCart = async (req, res) => {
     const cart = await cartRepo.getUserCart(userId);
     await cartRepo.addProductToCart(cart, product._id);
 
-    // ✅ recargar carrito populado
     const updatedCart = await Cart.findOne({ usuarioId: userId })
       .populate('productos.productoId', 'nombreComercial codigo precio');
 
@@ -32,7 +36,7 @@ export const addToCart = async (req, res) => {
   }
 };
 
-// ✅ Eliminar producto del carrito con populate
+// ✅ Eliminar producto del carrito
 export const removeFromCart = async (req, res) => {
   const userId = req.user._id;
   const { codigo } = req.params;
@@ -44,7 +48,6 @@ export const removeFromCart = async (req, res) => {
     const cart = await cartRepo.getUserCart(userId);
     await cartRepo.removeProductFromCart(cart, product._id);
 
-    // ✅ recargar carrito populado
     const updatedCart = await Cart.findOne({ usuarioId: userId })
       .populate('productos.productoId', 'nombreComercial codigo precio');
 
@@ -55,7 +58,7 @@ export const removeFromCart = async (req, res) => {
   }
 };
 
-// ✅ Ver carrito con populate
+// ✅ Ver carrito
 export const viewCart = async (req, res) => {
   const userId = req.user._id;
 
@@ -68,12 +71,7 @@ export const viewCart = async (req, res) => {
   }
 };
 
-// ✅ Generar código de ticket
-function generarCodigoTicket() {
-  return 'TCK-' + Date.now();
-}
-
-// ✅ Finalizar compra con verificación de stock
+// ✅ Finalizar compra con evento WebSocket
 export const purchaseCart = async (req, res) => {
   const userId = req.user._id;
 
@@ -83,9 +81,7 @@ export const purchaseCart = async (req, res) => {
       return res.status(400).json({ message: 'El carrito está vacío' });
     }
 
-    // ✅ obtener datos del usuario
     const userData = await User.findById(userId).lean();
-
     let total = 0;
     const productosFinal = [];
 
@@ -99,9 +95,10 @@ export const purchaseCart = async (req, res) => {
 
         total += product.precio * item.cantidad;
 
+        // ✅ Guardar también el nombreBackup
         productosFinal.push({
           productoId: product._id,
-          nombre: product.nombreComercial,
+          nombreBackup: product.nombreComercial,
           cantidad: item.cantidad
         });
       } else {
@@ -111,19 +108,40 @@ export const purchaseCart = async (req, res) => {
       }
     }
 
-      // ✅ generar ticket con estado pendiente
-      const newTicket = await Ticket.create({
-        codigo: 'TCK-' + Date.now(),
-        comprador: userId,
-        productos: productosFinal,
-        total,
-        estado: 'pendiente'   // ✅ ahora se guarda correctamente
-      });
+    // ✅ Crear ticket con nombreBackup
+    const newTicket = await Ticket.create({
+      codigo: generarCodigoTicket(),
+      comprador: userId,
+      productos: productosFinal,
+      total,
+      estado: 'pendiente'
+    });
 
-    // ✅ vaciar carrito
+    // ✅ Emitir evento WebSocket con nombre incluido
+    if (req.io) {
+      req.io.emit("pedidoNuevo", {
+        codigo: newTicket.codigo,
+        comprador: {
+          name: userData.name,
+          email: userData.email,
+          phone: userData.phone,
+          address: userData.address
+        },
+        productos: productosFinal.map(p => ({
+          productoId: p.productoId,
+          nombre: p.nombreBackup,      // 🔥 nombre disponible en tiempo real
+          cantidad: p.cantidad
+        })),
+        total,
+        estado: newTicket.estado
+      });
+      console.log("🔔 Evento pedidoNuevo emitido con nombres correctos:", newTicket.codigo);
+    }
+
+    // ✅ Vaciar carrito
     await cart.deleteOne({ _id: cart._id });
 
-    // ✅ construir correos
+    // ✅ Correos usando nombreBackup
     const htmlUser = `
       <h2>✅ Gracias por su compra, ${userData.name}</h2>
       <p>Su pedido ha sido recibido y está en preparación.</p>
@@ -131,9 +149,8 @@ export const purchaseCart = async (req, res) => {
       <p><b>Código de ticket:</b> ${newTicket.codigo}</p>
       <h3>🛒 Productos:</h3>
       <ul>
-        ${productosFinal.map(p => `<li>${p.nombre} - Cantidad: ${p.cantidad}</li>`).join('')}
+        ${productosFinal.map(p => `<li>${p.nombreBackup} - Cantidad: ${p.cantidad}</li>`).join('')}
       </ul>
-      <p>Gracias por su preferencia.</p>
     `;
 
     const htmlAdmin = `
@@ -146,11 +163,10 @@ export const purchaseCart = async (req, res) => {
       <p><b>Código de ticket:</b> ${newTicket.codigo}</p>
       <h3>🛒 Productos:</h3>
       <ul>
-        ${productosFinal.map(p => `<li>${p.nombre} - Cantidad: ${p.cantidad}</li>`).join('')}
+        ${productosFinal.map(p => `<li>${p.nombreBackup} - Cantidad: ${p.cantidad}</li>`).join('')}
       </ul>
     `;
 
-    // ✅ enviar correos
     await sendRecoveryEmail(userData.email, `Gracias por su compra - ${newTicket.codigo}`, htmlUser);
     await sendRecoveryEmail(process.env.ADMIN_EMAIL, `Nuevo pedido de ${userData.name} - ${newTicket.codigo}`, htmlAdmin);
 

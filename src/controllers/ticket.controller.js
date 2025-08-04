@@ -69,6 +69,24 @@ export const getPedidosPendientes = async (req, res) => {
   }
 };
 
+// 🔹 Crear un nuevo pedido (con emisión de evento WebSocket)
+export const crearPedido = async (req, res) => {
+  try {
+    const nuevoPedido = await Ticket.create(req.body);
+
+    // ✅ Emitir evento en tiempo real a todos los clientes conectados
+    req.io.emit("pedidoNuevo", ticketDTO(nuevoPedido));
+    console.log("🔔 Evento pedidoNuevo emitido desde checkout:", ticketDTO(ticketCreado));
+
+    res.status(201).json({
+      message: 'Pedido creado exitosamente',
+      ticket: ticketDTO(nuevoPedido)
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al crear el pedido', error: error.message });
+  }
+};
+
 // 🔹 Marcar un pedido como surtido (por código)
 export const marcarPedidoSurtido = async (req, res) => {
   try {
@@ -81,6 +99,9 @@ export const marcarPedidoSurtido = async (req, res) => {
 
     ticket.estado = 'surtido';
     await ticket.save();
+
+    // ✅ Emitir evento en tiempo real al actualizar pedido
+    req.io.emit("pedidoActualizado", ticketDTO(ticket));
 
     res.status(200).json({
       message: 'Pedido marcado como surtido',
@@ -100,19 +121,17 @@ export const getPedidosPorRango = async (req, res) => {
       return res.status(400).json({ message: 'Debes proporcionar fecha de inicio y fin' });
     }
 
-    // ✅ convertir fechas y normalizar
     const fechaInicio = new Date(inicio);
     fechaInicio.setHours(0, 0, 0, 0);
 
     const fechaFin = new Date(fin);
     fechaFin.setHours(23, 59, 59, 999);
 
-    // ✅ usar createdAt si no estás guardando manualmente 'fecha'
     const tickets = await Ticket.find({
       estado: 'surtido',
       $or: [
         { fecha: { $gte: fechaInicio, $lte: fechaFin } },
-        { createdAt: { $gte: fechaInicio, $lte: fechaFin } } // 🔥 fallback si 'fecha' no existe
+        { createdAt: { $gte: fechaInicio, $lte: fechaFin } }
       ]
     })
       .populate('productos.productoId', 'nombreComercial precio')
